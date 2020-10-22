@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const {getClient, setup, sleep, genTransactionId, randPassword} = require('../../websocket');
+const {getClient, setup, sleep, genTransactionId, randPassword} = require('../../services/websocket');
 
 /**
  * Post Setup
@@ -35,10 +35,10 @@ const {getClient, setup, sleep, genTransactionId, randPassword} = require('../..
  */
 router.post('/', function (req, res) {
 
-    console.log(req.body);
-
     const client = getClient(req.body.uuid);
-    const dryRun = req.body.dry;
+    const dryRun = req.body.dry || false;
+    const fail = req.body.fail || false;
+    const isHA = req.body.isHA || false;
     const cluster = req.body.cluster;
     const nodes = req.body.nodes;
     const general = req.body.general;
@@ -47,6 +47,10 @@ router.post('/', function (req, res) {
     const cf = req.body.cf;
     const additional = req.body.additional;
     const letsencrypt = req.body.letsencrypt;
+
+    if (req.app.locals.config.debug) {
+        console.log(req.body);
+    }
 
     // Filtering Bad Request Codes; todo: more advance filtering and changing to switch case
     if (!client) {
@@ -91,7 +95,7 @@ router.post('/', function (req, res) {
         global: {
             registry: cluster.registry_endpoint,
             uuid: client.uuid,
-            isHA: req.body.isHA,
+            isHA: isHA,
             externalLB: cluster.useExternalLb
         },
         ingress: {
@@ -104,6 +108,8 @@ router.post('/', function (req, res) {
         kubernetes: {
             version: '1.19',
             crioVersion: '1.18',
+            pod_cidr: `${(cluster.pod_cidr && cluster.pod_cidr.length > 0) ? cluster.pod_cidr : "10.0.0.0/8"}`, // "10.0.0.0/8",
+            service_cidr: `${(cluster.service_cidr && cluster.service_cidr.length > 0) ? cluster.service_cidr : "10.96.0.0/12"}`, // "10.96.0.0/12",
             dashboard: {
                 enabled: additional.dashboard
             },
@@ -119,7 +125,7 @@ router.post('/', function (req, res) {
             storageclass: 'rook-ceph-block' //  todo: not defined
         },
         stratos: {
-            enabled: cf.stratos,
+            enabled: general.installCF ? cf.stratos : false,
             coreDomain: cf.stratos_endpoint,
             adminpassword: randPassword(4, 4, 8)
         },
@@ -313,7 +319,7 @@ router.post('/', function (req, res) {
                 l3: {
                     ha: openstack.neutron_l3ha,
                     maxAgentsPerRouter: openstack.neutron_maxAgentsPerRouter,
-                    haNetworkType: openstack.neutron_overlayNetworkType,
+                    haNetworkType: openstack.neutron_overlayNetworkType.toLowerCase(),
                     dhcpAgents: openstack.neutron_dhcpAgents
                 },
                 endpoints: {
@@ -342,7 +348,7 @@ router.post('/', function (req, res) {
                     placementURLPrefix: openstack.nova_placement_endpoint
                 },
                 libvirt: {
-                    virtType: openstack.nova_virtType,
+                    virtType: openstack.nova_virtType.toLowerCase(),
                     cpuMode: openstack.nova_cpuMode
                 },
                 auth: {
@@ -364,7 +370,7 @@ router.post('/', function (req, res) {
                 }
             },
             senlin: {
-                enabled: openstack.senlin,
+                enabled: (!!openstack.senlin),
                 endpoints: {
                     publicURLPrefix: openstack.senlin_endpoint
                 },
@@ -409,6 +415,24 @@ router.post('/', function (req, res) {
         },
         guacamole: {
             enabled: false // todo: mapping required; to be implemented
+        },
+        efkstack: {
+            enabled: additional.elastic
+        },
+        harbor: {
+            enabled: additional.harbor
+        },
+        polyverse: {
+            enabled: (additional.polyverse ? additional.polyverse.enable : false), // (!!(additional.polyverse && additional.polyverse.enabled))
+            key: `${(additional.polyverse && additional.polyverse.key) ? additional.polyverse.key : ""}`
+        },
+        commercial: {
+            enabled: (!!(general.harborUser && general.harborKey)),
+            registry: {
+                url: 'harbor.cloudical.net',
+                username: `${general.harborUser ? general.harborUser : ''}`,
+                key: `${general.harborKey ? general.harborKey : ''}`
+            }
         }
     }
     // Building Inventory
@@ -454,7 +478,7 @@ router.post('/', function (req, res) {
         msg: ''
     };
     nodes.forEach((node) => {
-        if (!client.dryRun) {
+        if (!client.dryRun && !dryRun) {
             if (client.verifiedNodes[node.host]) {
                 if (node.role.toUpperCase() === "M") {
                     masterNodes[client.verifiedNodes[node.host]] = {
@@ -496,7 +520,15 @@ router.post('/', function (req, res) {
         hostsJson.all.children.cf.hosts = cfNodes;
         const transactionId = genTransactionId();
         sleep(500).then(() => {
-            setup(transactionId, basePath, dryRun, client, hostsJson, extraVars, req.app.locals.config.debug);
+            setup(transactionId,
+                basePath,
+                dryRun,
+                client,
+                hostsJson,
+                extraVars,
+                fail,
+                req.app.locals.config.debug
+            );
         });
         res.status(200).json({
             transactionId: transactionId,

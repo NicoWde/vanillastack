@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const {getClient, downloadKubeConf, cleanUpPath} = require('../../websocket');
+const path = require('path');
+const {getClient, downloadFile, cleanUpPath} = require('../../services/websocket');
 
 /**
  * Get KubeConfig to Download
@@ -35,25 +36,30 @@ const {getClient, downloadKubeConf, cleanUpPath} = require('../../websocket');
  */
 router.get('/:uuid', function (req, res) {
     const client = getClient(req.params.uuid);
+    const debug = req.app.locals.config.debug;
     if (!client) {
-        console.log("Client not Found");
+        if (debug) {
+            console.log("Client not Found");
+        }
         res.status(400).json({
             message: 'uuid invalid'
         });
         return;
     } else if (client.setup == null) {
-        console.log("Client has not run setup yet");
+        if (debug) {
+            console.log("Client has not run setup yet");
+        }
         res.status(400).json({
             message: 'setup has not run yet'
         });
         return;
     }
-
-    const kubeConfigPath = downloadKubeConf(client);
+    const filename = 'kubeconfig';
+    const kubeConfigPath = downloadFile(client.uuid, filename, client.setup);
     res.on('finish', () => {
-        cleanUpPath(null, kubeConfigPath, ['kubeconfig']);
+        cleanUpPath(debug, null, kubeConfigPath, [filename]);
     });
-    res.download(`${kubeConfigPath}/kubeconfig`);
+    res.download(path.join(kubeConfigPath, filename));
     // res.end();
 
     //cleanUpPath(null, kubeConfigPath, ['kubeconfig']);
