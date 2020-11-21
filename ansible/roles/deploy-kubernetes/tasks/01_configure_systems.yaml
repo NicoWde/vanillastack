@@ -35,13 +35,6 @@
       - gcc-*
   when: ansible_os_family == 'Suse' or ansible_distribution == 'CentOS'
 
-- name: install pip modules
-  pip:
-    name:
-      - pyhelm
-      - openshift
-    extra_args: --ignore-installed
-
 - name: make sure, domain search is not set
   lineinfile:
     regexp: '^(.*)search(.*)$'
@@ -74,6 +67,20 @@
     package:
       state: absent
       name: cockpit*
+    ignore_errors: yes
+
+  - name: install pip modules
+    pip:
+      name:
+        - wheel
+      extra_args: --ignore-installed
+
+  - name: install pip modules
+    pip:
+      name:
+        - pyhelm
+        - openshift
+      extra_args: --ignore-installed
 
   - name: Add cf repo      
     yum_repository:
@@ -125,9 +132,7 @@
   - name: Install packages
     package:
       name:
-#        - python-pip
         - python3-pip
-#        - python-kubernetes
         - python3-kubernetes
         - cf7-cli
         - "kubelet-{{ versions }}"
@@ -135,6 +140,7 @@
         - "kubectl-{{ versions }}"
         - grubby
         - cri-o
+        - nfs-utils
       disable_excludes: kubernetes
   
   - name: Disable SELinux
@@ -212,6 +218,11 @@
 - name: configure Debian Systems
   when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
   block:
+  - name: make sure, unattended upgrades is removed
+    package:
+      name: unattended-upgrades
+      state: absent
+      
   - name: Add key from keyserver
     apt_key:
       keyserver: keyserver.ubuntu.com
@@ -267,12 +278,20 @@
         - python3-pip
         - python-kubernetes
         - python3-kubernetes
+        - nfs-common
       update_cache: yes
     retries: 3
     delay: 1
     register: result
     until: result is success
     when: ansible_distribution == 'Debian'
+
+  - name: install pip modules
+    pip:
+      name:
+        - pyhelm
+        - openshift
+      extra_args: --ignore-installed
 
   - name: Install packages
     apt:
@@ -284,6 +303,7 @@
         - vim
         - python3-pip
         - python3-kubernetes
+        - nfs-common
       update_cache: yes
     retries: 3
     delay: 1
@@ -417,6 +437,13 @@
       repo: 'http://download.opensuse.org/tumbleweed/repo/oss/'
       auto_import_keys: yes
       state: present
+
+  - name: install pip modules
+    pip:
+      name:
+        - pyhelm
+        - openshift
+      extra_args: --ignore-installed
 
   - name: Install packages
     community.general.zypper:
